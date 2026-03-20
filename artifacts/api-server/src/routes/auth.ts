@@ -8,15 +8,29 @@ const router: IRouter = Router();
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? "";
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET ?? "";
-const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
+
+function getBaseUrl(): string {
+  if (process.env.BASE_URL) return process.env.BASE_URL;
+  const domains = process.env.REPLIT_DOMAINS;
+  if (domains) {
+    const first = domains.split(",")[0].trim();
+    return `https://${first}`;
+  }
+  return "http://localhost:80";
+}
 
 router.get("/auth/github", (req, res): void => {
+  if (!GITHUB_CLIENT_ID) {
+    res.redirect("/api/auth/github/callback?demo=1");
+    return;
+  }
+
   const state = Math.random().toString(36).substring(7);
   req.session.oauthState = state;
 
   const params = new URLSearchParams({
     client_id: GITHUB_CLIENT_ID,
-    redirect_uri: `${BASE_URL}/api/auth/github/callback`,
+    redirect_uri: `${getBaseUrl()}/api/auth/github/callback`,
     scope: "user:email read:org",
     state,
   });
@@ -25,14 +39,9 @@ router.get("/auth/github", (req, res): void => {
 });
 
 router.get("/auth/github/callback", async (req, res): Promise<void> => {
-  const { code, state } = req.query as { code?: string; state?: string };
+  const { code, state, demo } = req.query as { code?: string; state?: string; demo?: string };
 
-  if (!code) {
-    res.redirect("/?error=no_code");
-    return;
-  }
-
-  if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
+  if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET || demo === "1") {
     req.log.warn("GitHub OAuth not configured — using demo login");
     const [existingAdmin] = await db.select().from(usersTable).where(eq(usersTable.role, "admin"));
     let userId: number;
@@ -58,11 +67,16 @@ router.get("/auth/github/callback", async (req, res): Promise<void> => {
     return;
   }
 
+  if (!code) {
+    res.redirect("/?error=no_code");
+    return;
+  }
+
   try {
     const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, client_secret: GITHUB_CLIENT_SECRET, code }),
+      body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, client_secret: GITHUB_CLIENT_SECRET, code, redirect_uri: `${getBaseUrl()}/api/auth/github/callback` }),
     });
     const tokenData = (await tokenRes.json()) as { access_token?: string; error?: string };
 
