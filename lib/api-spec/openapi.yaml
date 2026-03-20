@@ -1,22 +1,37 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Platform Engineering Control Plane API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: teams
+    description: Team management
+  - name: namespaces
+    description: Kubernetes namespace management
+  - name: starterkits
+    description: Starter kit catalog
+  - name: deployments
+    description: Deployment management
+  - name: evidence
+    description: Compliance evidence vault
+  - name: operators
+    description: Platform operators (S3, Salesforce, etc.)
+  - name: users
+    description: User management
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +39,574 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/github:
+    get:
+      operationId: initiateGithubLogin
+      tags: [auth]
+      summary: Initiate GitHub OAuth login
+      responses:
+        "302":
+          description: Redirect to GitHub
+
+  /auth/github/callback:
+    get:
+      operationId: githubCallback
+      tags: [auth]
+      summary: GitHub OAuth callback
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect after login
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout current user
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /teams:
+    get:
+      operationId: listTeams
+      tags: [teams]
+      summary: List all teams (admin sees all, user sees own teams)
+      responses:
+        "200":
+          description: List of teams
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Team"
+        "401":
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createTeam
+      tags: [teams]
+      summary: Create a new team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTeamBody"
+      responses:
+        "201":
+          description: Team created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /teams/{teamId}:
+    get:
+      operationId: getTeam
+      tags: [teams]
+      summary: Get team details
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Team details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "404":
+          description: Team not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateTeam
+      tags: [teams]
+      summary: Update a team
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTeamBody"
+      responses:
+        "200":
+          description: Team updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "404":
+          description: Team not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteTeam
+      tags: [teams]
+      summary: Delete a team
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Team deleted
+        "404":
+          description: Team not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /teams/{teamId}/members:
+    get:
+      operationId: listTeamMembers
+      tags: [teams]
+      summary: List members of a team
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Team members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamMember"
+    post:
+      operationId: addTeamMember
+      tags: [teams]
+      summary: Add a member to a team
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddTeamMemberBody"
+      responses:
+        "201":
+          description: Member added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamMember"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /teams/{teamId}/members/{userId}:
+    delete:
+      operationId: removeTeamMember
+      tags: [teams]
+      summary: Remove a member from a team
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Member removed
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /namespaces:
+    get:
+      operationId: listNamespaces
+      tags: [namespaces]
+      summary: List namespaces (admin sees all, user sees own team namespaces)
+      responses:
+        "200":
+          description: List of namespaces
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Namespace"
+        "401":
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createNamespace
+      tags: [namespaces]
+      summary: Create a namespace for a team and environment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNamespaceBody"
+      responses:
+        "201":
+          description: Namespace created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Namespace"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /namespaces/{namespaceId}:
+    get:
+      operationId: getNamespace
+      tags: [namespaces]
+      summary: Get namespace details
+      parameters:
+        - name: namespaceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Namespace details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Namespace"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteNamespace
+      tags: [namespaces]
+      summary: Delete a namespace
+      parameters:
+        - name: namespaceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Namespace deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /starterkits:
+    get:
+      operationId: listStarterKits
+      tags: [starterkits]
+      summary: List available starter kits
+      responses:
+        "200":
+          description: List of starter kits
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StarterKit"
+
+  /starterkits/{starterKitId}:
+    get:
+      operationId: getStarterKit
+      tags: [starterkits]
+      summary: Get starter kit details
+      parameters:
+        - name: starterKitId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Starter kit details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StarterKit"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /deployments:
+    get:
+      operationId: listDeployments
+      tags: [deployments]
+      summary: List deployments (admin sees all, user sees team deployments)
+      responses:
+        "200":
+          description: List of deployments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Deployment"
+        "401":
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createDeployment
+      tags: [deployments]
+      summary: Trigger a deployment (runs compliance checks first)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDeploymentBody"
+      responses:
+        "201":
+          description: Deployment created (may be blocked by compliance)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Deployment"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /deployments/{deploymentId}:
+    get:
+      operationId: getDeployment
+      tags: [deployments]
+      summary: Get deployment details
+      parameters:
+        - name: deploymentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deployment details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Deployment"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /evidence:
+    get:
+      operationId: listEvidence
+      tags: [evidence]
+      summary: List evidence records (admin sees all, user sees team evidence)
+      parameters:
+        - name: teamId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+        - name: deploymentId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: List of evidence records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EvidenceRecord"
+        "401":
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /evidence/{evidenceId}:
+    get:
+      operationId: getEvidence
+      tags: [evidence]
+      summary: Get evidence record details
+      parameters:
+        - name: evidenceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Evidence record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvidenceRecord"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /operators:
+    get:
+      operationId: listOperators
+      tags: [operators]
+      summary: List available platform operators
+      responses:
+        "200":
+          description: List of operators
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Operator"
+
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List all users (admin only)
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +617,388 @@ components:
       required:
         - status
 
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        githubId:
+          type: string
+        username:
+          type: string
+        displayName:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        role:
+          type: string
+          enum: [admin, member]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - githubId
+        - username
+        - displayName
+        - avatarUrl
+        - email
+        - role
+        - createdAt
+
+    Team:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: ["string", "null"]
+        createdBy:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        memberCount:
+          type: integer
+        namespaceCount:
+          type: integer
+      required:
+        - id
+        - name
+        - slug
+        - description
+        - createdBy
+        - createdAt
+        - updatedAt
+        - memberCount
+        - namespaceCount
+
+    CreateTeamBody:
+      type: object
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: ["string", "null"]
+      required:
+        - name
+        - slug
+
+    UpdateTeamBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+
+    TeamMember:
+      type: object
+      properties:
+        id:
+          type: integer
+        teamId:
+          type: integer
+        userId:
+          type: integer
+        role:
+          type: string
+          enum: [owner, member]
+        joinedAt:
+          type: string
+          format: date-time
+        user:
+          $ref: "#/components/schemas/User"
+      required:
+        - id
+        - teamId
+        - userId
+        - role
+        - joinedAt
+        - user
+
+    AddTeamMemberBody:
+      type: object
+      properties:
+        userId:
+          type: integer
+        role:
+          type: string
+          enum: [owner, member]
+      required:
+        - userId
+
+    Namespace:
+      type: object
+      properties:
+        id:
+          type: integer
+        teamId:
+          type: integer
+        teamName:
+          type: string
+        teamSlug:
+          type: string
+        environment:
+          type: string
+          enum: [dev, prod]
+        k8sNamespace:
+          type: string
+        status:
+          type: string
+          enum: [active, provisioning, terminating]
+        createdAt:
+          type: string
+          format: date-time
+        resourceQuota:
+          type: object
+          properties:
+            cpuLimit:
+              type: string
+            memoryLimit:
+              type: string
+            podLimit:
+              type: integer
+          required:
+            - cpuLimit
+            - memoryLimit
+            - podLimit
+      required:
+        - id
+        - teamId
+        - teamName
+        - teamSlug
+        - environment
+        - k8sNamespace
+        - status
+        - createdAt
+        - resourceQuota
+
+    CreateNamespaceBody:
+      type: object
+      properties:
+        teamId:
+          type: integer
+        environment:
+          type: string
+          enum: [dev, prod]
+      required:
+        - teamId
+        - environment
+
+    StarterKit:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+          enum: [web, api, worker, ml, data]
+        language:
+          type: string
+        framework:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        dockerfileIncluded:
+          type: boolean
+        cicdIncluded:
+          type: boolean
+        complianceReady:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - description
+        - category
+        - language
+        - framework
+        - tags
+        - dockerfileIncluded
+        - cicdIncluded
+        - complianceReady
+        - createdAt
+
+    Deployment:
+      type: object
+      properties:
+        id:
+          type: integer
+        teamId:
+          type: integer
+        teamName:
+          type: string
+        namespaceId:
+          type: integer
+        namespaceName:
+          type: string
+        environment:
+          type: string
+          enum: [dev, prod]
+        serviceName:
+          type: string
+        imageTag:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, blocked, failed, succeeded]
+        complianceStatus:
+          type: string
+          enum: [pending, passed, failed]
+        testCoverage:
+          type: ["number", "null"]
+        triggeredBy:
+          type: integer
+        triggeredByUsername:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - teamId
+        - teamName
+        - namespaceId
+        - namespaceName
+        - environment
+        - serviceName
+        - imageTag
+        - status
+        - complianceStatus
+        - testCoverage
+        - triggeredBy
+        - triggeredByUsername
+        - createdAt
+        - updatedAt
+
+    CreateDeploymentBody:
+      type: object
+      properties:
+        namespaceId:
+          type: integer
+        serviceName:
+          type: string
+        imageTag:
+          type: string
+        testCoverage:
+          type: ["number", "null"]
+      required:
+        - namespaceId
+        - serviceName
+        - imageTag
+
+    EvidenceRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+        deploymentId:
+          type: integer
+        teamId:
+          type: integer
+        teamName:
+          type: string
+        environment:
+          type: string
+          enum: [dev, prod]
+        serviceName:
+          type: string
+        imageTag:
+          type: string
+        checkType:
+          type: string
+          enum: [test_coverage, security_scan, policy_gate, rbac_check]
+        status:
+          type: string
+          enum: [passed, failed, skipped]
+        details:
+          type: string
+        threshold:
+          type: ["number", "null"]
+        actual:
+          type: ["number", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - deploymentId
+        - teamId
+        - teamName
+        - environment
+        - serviceName
+        - imageTag
+        - checkType
+        - status
+        - details
+        - threshold
+        - actual
+        - createdAt
+
+    Operator:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [s3, rds, salesforce, kafka, redis, vault]
+        status:
+          type: string
+          enum: [active, inactive]
+        version:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - description
+        - type
+        - status
+        - version
+        - createdAt

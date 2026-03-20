@@ -1,8 +1,8 @@
-# Workspace
+# Platform Engineering Portal — Workspace
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+A full proof-of-concept platform engineering experience demonstrating the core layers of an internal developer platform (IDP): Developer Portal, Control Plane API, CLI, Kubernetes-backed namespaces, RBAC, compliance enforcement, and an evidence vault.
 
 ## Stack
 
@@ -14,83 +14,80 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Database**: PostgreSQL + Drizzle ORM
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
+- **Frontend**: React + Vite (Tailwind CSS, Wouter, TanStack Query)
+- **Auth**: Session-based (express-session) + GitHub OAuth (mocked for demo)
 - **Build**: esbuild (CJS bundle)
+
+## Architecture
+
+### Three Touchpoints
+1. **Developer Portal** (`artifacts/portal`) — React SPA at `/`, authenticated via GitHub OAuth session
+2. **Control Plane API** (`artifacts/api-server`) — Express 5 at `/api`, backed by PostgreSQL
+3. **CLI** (`artifacts/cli`) — `platform` command, calls the same API
+
+### Control Plane Features
+- **Teams** — Create/manage/delete teams, add members with roles (owner/member)
+- **Namespaces** — Kubernetes namespaces per team per environment (dev/prod), with resource quotas
+- **Starter Kits** — Catalog of pre-approved service templates
+- **Deployments** — Trigger deployments with compliance checks baked in
+- **Evidence Vault** — Audit trail for every compliance check on every deployment
+- **Operators** — Platform operators (S3, RDS, Salesforce, Kafka, Redis, Vault)
+
+### Compliance Engine (`artifacts/api-server/src/lib/compliance.ts`)
+- Prod deployments: require ≥80% test coverage, or they are **blocked**
+- Dev deployments: test coverage check skipped
+- All deployments run: security scan, policy gate (OPA mock), RBAC check (K8s mock)
+- Every check creates an evidence record in the vault
+
+### Kubernetes Mock
+- Namespaces provisioned in DB as `{team-slug}-{environment}` (e.g. `payments-prod`)
+- Resource quotas: prod = 8 CPU / 16Gi / 50 pods, dev = 4 CPU / 8Gi / 20 pods
+- RBAC: enforced via team membership + namespace scoping in API layer
+- No real K8s connection; all state is in PostgreSQL
 
 ## Structure
 
 ```text
 artifacts-monorepo/
-├── artifacts/              # Deployable applications
-│   └── api-server/         # Express API server
-├── lib/                    # Shared libraries
+├── artifacts/
+│   ├── api-server/         # Express 5 API server (auth, teams, namespaces, deployments, evidence)
+│   ├── portal/             # React + Vite Developer Portal SPA
+│   └── cli/                # Platform CLI (platform login/teams/namespaces/deploy/evidence)
+├── lib/
 │   ├── api-spec/           # OpenAPI spec + Orval codegen config
 │   ├── api-client-react/   # Generated React Query hooks
 │   ├── api-zod/            # Generated Zod schemas from OpenAPI
 │   └── db/                 # Drizzle ORM schema + DB connection
-├── scripts/                # Utility scripts (single workspace package)
-│   └── src/                # Individual .ts scripts, run via `pnpm --filter @workspace/scripts run <script>`
-├── pnpm-workspace.yaml     # pnpm workspace (artifacts/*, lib/*, lib/integrations/*, scripts)
-├── tsconfig.base.json      # Shared TS options (composite, bundler resolution, es2022)
-├── tsconfig.json           # Root TS project references
-└── package.json            # Root package with hoisted devDeps
+├── scripts/
+│   └── src/seed.ts         # Database seeding script
 ```
 
-## TypeScript & Composite Projects
+## Key Files
 
-Every package extends `tsconfig.base.json` which sets `composite: true`. The root `tsconfig.json` lists all packages as project references. This means:
+- `lib/api-spec/openapi.yaml` — Full API contract (auth, teams, namespaces, deployments, evidence, operators, users)
+- `lib/db/src/schema/` — All table definitions
+- `artifacts/api-server/src/lib/compliance.ts` — Compliance engine
+- `artifacts/api-server/src/lib/auth.ts` — Session auth + requireAuth/requireAdmin middleware
+- `artifacts/api-server/src/routes/` — Route handlers per domain
+- `artifacts/portal/src/pages/` — All frontend pages
+- `artifacts/cli/src/commands/` — CLI commands
 
-- **Always typecheck from the root** — run `pnpm run typecheck` (which runs `tsc --build --emitDeclarationOnly`). This builds the full dependency graph so that cross-package imports resolve correctly. Running `tsc` inside a single package will fail if its dependencies haven't been built yet.
-- **`emitDeclarationOnly`** — we only emit `.d.ts` files during typecheck; actual JS bundling is handled by esbuild/tsx/vite...etc, not `tsc`.
-- **Project references** — when package A depends on package B, A's `tsconfig.json` must list B in its `references` array. `tsc --build` uses this to determine build order and skip up-to-date packages.
+## Running
 
-## Root Scripts
+- API server: `pnpm --filter @workspace/api-server run dev`
+- Portal: `pnpm --filter @workspace/portal run dev`
+- CLI: `pnpm --filter @workspace/cli run dev -- <command>`
+- Seed: `pnpm --filter @workspace/scripts run seed`
 
-- `pnpm run build` — runs `typecheck` first, then recursively runs `build` in all packages that define it
-- `pnpm run typecheck` — runs `tsc --build --emitDeclarationOnly` using project references
+## Demo Login
 
-## Packages
+Without GitHub OAuth credentials, visiting `/api/auth/github/callback` auto-creates a demo admin user. In production, set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` environment variables.
 
-### `artifacts/api-server` (`@workspace/api-server`)
+## Compliance Rules
 
-Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` for request and response validation and `@workspace/db` for persistence.
+| Environment | Test Coverage | Threshold |
+|-------------|--------------|-----------|
+| dev | skipped | — |
+| prod | required | ≥ 80% |
 
-- Entry: `src/index.ts` — reads `PORT`, starts Express
-- App setup: `src/app.ts` — mounts CORS, JSON/urlencoded parsing, routes at `/api`
-- Routes: `src/routes/index.ts` mounts sub-routers; `src/routes/health.ts` exposes `GET /health` (full path: `/api/health`)
-- Depends on: `@workspace/db`, `@workspace/api-zod`
-- `pnpm --filter @workspace/api-server run dev` — run the dev server
-- `pnpm --filter @workspace/api-server run build` — production esbuild bundle (`dist/index.cjs`)
-- Build bundles an allowlist of deps (express, cors, pg, drizzle-orm, zod, etc.) and externalizes the rest
-
-### `lib/db` (`@workspace/db`)
-
-Database layer using Drizzle ORM with PostgreSQL. Exports a Drizzle client instance and schema models.
-
-- `src/index.ts` — creates a `Pool` + Drizzle instance, exports schema
-- `src/schema/index.ts` — barrel re-export of all models
-- `src/schema/<modelname>.ts` — table definitions with `drizzle-zod` insert schemas (no models definitions exist right now)
-- `drizzle.config.ts` — Drizzle Kit config (requires `DATABASE_URL`, automatically provided by Replit)
-- Exports: `.` (pool, db, schema), `./schema` (schema only)
-
-Production migrations are handled by Replit when publishing. In development, we just use `pnpm --filter @workspace/db run push`, and we fallback to `pnpm --filter @workspace/db run push-force`.
-
-### `lib/api-spec` (`@workspace/api-spec`)
-
-Owns the OpenAPI 3.1 spec (`openapi.yaml`) and the Orval config (`orval.config.ts`). Running codegen produces output into two sibling packages:
-
-1. `lib/api-client-react/src/generated/` — React Query hooks + fetch client
-2. `lib/api-zod/src/generated/` — Zod schemas
-
-Run codegen: `pnpm --filter @workspace/api-spec run codegen`
-
-### `lib/api-zod` (`@workspace/api-zod`)
-
-Generated Zod schemas from the OpenAPI spec (e.g. `HealthCheckResponse`). Used by `api-server` for response validation.
-
-### `lib/api-client-react` (`@workspace/api-client-react`)
-
-Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHealthCheck`, `healthCheck`).
-
-### `scripts` (`@workspace/scripts`)
-
-Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
+Failed checks → deployment status = `blocked`, evidence records created with `failed` status.

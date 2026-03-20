@@ -1,0 +1,16 @@
+packages:
+  "framer-motion": "Animations and page transitions for a premium feel"
+  "recharts": "Data visualization for the dashboard stats"
+  "date-fns": "Date formatting for tables and activity feeds"
+  "@hookform/resolvers": "Zod validation for forms"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility for merging tailwind classes without style conflicts"
+
+images:
+  - path: "artifacts/portal/public/images/auth-bg.png"
+    description: "Dark, abstract, professional command center background with subtle glowing cyan and indigo geometric grid lines and deep shadows, cyberpunk but corporate and clean"
+    aspect_ratio: "16:9"
+
+notes:
+  - Uses cookie-based auth via /api/auth/github
+  - Imports queries and mutations from @workspace/api-client-react
