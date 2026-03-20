@@ -28,7 +28,7 @@ const queryClient = new QueryClient({
 });
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { data: user, isLoading, error } = useGetMe();
+  const { data: user, isLoading, error, refetch } = useGetMe();
 
   if (isLoading) {
     return (
@@ -41,9 +41,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // 401 or network error
   if (error || !user) {
-    return <Login />;
+    return <Login onLogin={() => refetch()} />;
   }
 
   return <>{children}</>;
